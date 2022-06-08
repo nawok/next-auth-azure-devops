@@ -1,0 +1,8 @@
+{
+  "Local HTTPS (Next.js)": {
+    "key": "certificates/localhost-key.pem",
+    "cert": "certificates/localhost.pem",
+    "source": 443,
+    "target": 3000
+  }
+}

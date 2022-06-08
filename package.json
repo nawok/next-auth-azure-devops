@@ -10,6 +10,7 @@
   "homepage": "https://next-auth-example.vercel.app",
   "main": "",
   "scripts": {
+    "ssl": "local-ssl-proxy --config certificates/config.json",
     "dev": "next",
     "build": "next build",
     "start": "next start",
@@ -25,13 +26,14 @@
   "dependencies": {
     "next": "^12.0.11-canary.4",
     "next-auth": "latest",
-    "nodemailer": "^6.6.3",
     "react": "^17.0.2",
     "react-dom": "^17.0.2"
   },
   "devDependencies": {
     "@types/node": "^17.0.14",
     "@types/react": "^17.0.39",
+    "local-ssl-proxy": "^1.3.0",
+    "tiny-invariant": "^1.2.0",
     "typescript": "^4.5.5"
   },
   "prettier": {
