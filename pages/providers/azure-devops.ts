@@ -21,7 +21,7 @@ export interface AzureDevOpsProfile extends Record<string, unknown> {
 export default function AzureDevOps<P extends AzureDevOpsProfile>(
   options: OAuthUserConfig<P> & {
     /**
-     * https://docs.microsoft.com/en-us/rest/api/azure/devops/profile/profiles/get?view=azure-devops-rest-6.0#scopes
+     * https://docs.microsoft.com/en-us/azure/devops/integrate/get-started/authentication/oauth?view=azure-devops#scopes
      * @default vso.profile
      */
     scope?: string
