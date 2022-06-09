@@ -1,15 +1,12 @@
-import NextAuth, { TokenSet } from "next-auth"
-import { TokenEndpointHandler } from "next-auth/providers"
-import invariant from "tiny-invariant"
+import NextAuth, { Profile, TokenSet } from "next-auth"
+import {
+  TokenEndpointHandler,
+  UserinfoEndpointHandler,
+} from "next-auth/providers"
 
 const clientId = process.env.AZURE_DEVOPS_APP_ID
 const clientSecret = process.env.AZURE_DEVOPS_CLIENT_SECRET
 const scope = process.env.AZURE_DEVOPS_SCOPE
-
-invariant(
-  clientId && clientSecret && scope,
-  "Check environment variables for Azure DevOps provider"
-)
 
 export default NextAuth({
   providers: [
@@ -27,28 +24,21 @@ export default NextAuth({
       token: {
         url: "https://app.vssps.visualstudio.com/oauth2/token",
         async request(context) {
-          const tokens = await makeTokenRequest(context)
-          return { tokens }
+          return { tokens: await makeTokenRequest(context) }
         },
       },
       userinfo: {
-        url: "https://app.vsaex.visualstudio.com/me",
+        url: "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?details=true&coreAttributes=Avatar&api-version=6.0",
         async request(context) {
-          console.log({ userInfoRequest: { tokens: context.tokens } })
-          return {
-            id: "nawok",
-            name: "Pavel Fomchenkov",
-            email: "hello@pavel.codes",
-            image: "https://avatars.githubusercontent.com/u/159773?s=120&v=4",
-          }
+          return await makeUserInfoRequest(context)
         },
       },
-      profile: (profile) => {
+      async profile(profile: AzureDevOpsProfile) {
         return {
           id: profile.id,
-          name: profile.name,
-          email: profile.name,
-          image: profile.image,
+          name: profile.displayName,
+          email: profile.emailAddress,
+          image: `data:image/jpeg;base64,${profile.coreAttributes.Avatar.value.value}`,
         }
       },
       clientId,
@@ -57,39 +47,72 @@ export default NextAuth({
   ],
 })
 
-interface TokenRequestContext {
-  params: { code?: string; state?: string }
-  provider: {
-    token?: string | TokenEndpointHandler | undefined
-    clientSecret?: string
-    callbackUrl?: string
+// USER INFO
+
+interface AzureDevOpsProfile extends Profile {
+  id: string
+  displayName: string
+  emailAddress: string
+  coreAttributes: {
+    Avatar: {
+      value: {
+        value: string
+      }
+    }
   }
 }
+
+async function makeUserInfoRequest(
+  context: UserInfoRequestContext
+): Promise<AzureDevOpsProfile> {
+  const accessToken = context.tokens.access_token as string
+  const userInfoEndpoint = context.provider.userinfo as UserinfoEndpointHandler
+  const response = await fetch(userInfoEndpoint.url as string, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+  return response.json()
+}
+
+interface UserInfoRequestContext {
+  tokens: TokenSet
+  provider: {
+    userinfo?: string | UserinfoEndpointHandler
+  }
+}
+
+// TOKEN
 
 async function makeTokenRequest(
   context: TokenRequestContext
 ): Promise<TokenSet> {
-  const { url } = context.provider.token as TokenEndpointHandler
-  invariant(url, "Token URL is not set")
-  const body = createTokenRequestBody(context)
-  const response = await fetch(url, {
+  const tokenEndpoint = context.provider.token as TokenEndpointHandler
+  const response = await fetch(tokenEndpoint.url as string, {
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      "Content-Length": body.length.toString(),
     },
     method: "POST",
-    body,
+    body: createTokenRequestBody(context),
   })
   const tokenResponse = await response.json()
   return tokenResponse as TokenSet
+}
+
+interface TokenRequestContext {
+  params: { code?: string; state?: string }
+  provider: {
+    token?: string | TokenEndpointHandler
+    clientSecret?: string
+    callbackUrl?: string
+  }
 }
 
 function createTokenRequestBody(context: TokenRequestContext) {
   const clientSecret = context.provider.clientSecret as string
   const callbackUrl = context.provider.callbackUrl as string
   const code = context.params.code as string
-
-  const bodyParams = new URLSearchParams({
+  return new URLSearchParams({
     client_assertion_type:
       "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
     client_assertion: clientSecret,
@@ -97,6 +120,4 @@ function createTokenRequestBody(context: TokenRequestContext) {
     assertion: code,
     redirect_uri: callbackUrl,
   })
-
-  return bodyParams.toString()
 }
