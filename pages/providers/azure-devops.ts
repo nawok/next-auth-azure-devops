@@ -1,4 +1,9 @@
-import { OAuthConfig, OAuthUserConfig } from "next-auth/providers"
+import {
+  OAuthConfig,
+  OAuthUserConfig,
+  TokenEndpointHandler,
+  UserinfoEndpointHandler,
+} from "next-auth/providers"
 
 export interface AzureDevOpsProfile extends Record<string, unknown> {
   id: string
@@ -16,54 +21,73 @@ export interface AzureDevOpsProfile extends Record<string, unknown> {
 export default function AzureDevOps<P extends AzureDevOpsProfile>(
   options: OAuthUserConfig<P> & {
     /**
-     * https://docs.microsoft.com/en-us/graph/api/profilephoto-get?view=graph-rest-1.0#examples
-     * @default 48
+     * https://docs.microsoft.com/en-us/rest/api/azure/devops/profile/profiles/get?view=azure-devops-rest-6.0#scopes
+     * @default vso.profile
      */
-    profilePhotoSize?: 48 | 64 | 96 | 120 | 240 | 360 | 432 | 504 | 648
+    scope?: string
   }
 ): OAuthConfig<P> {
-  const profilePhotoSize = options.profilePhotoSize ?? 48
+  const scope = options.scope ?? "vso.profile"
 
   return {
-    id: "azure-ad",
-    name: "Azure Active Directory",
+    id: "azure-devops",
+    name: "Azure DevOps",
     type: "oauth",
-    wellKnown: `https://login.microsoftonline.com/${tenant}/v2.0/.well-known/openid-configuration`,
+
     authorization: {
+      url: "https://app.vssps.visualstudio.com/oauth2/authorize",
       params: {
-        scope: "openid profile email",
+        scope,
+        response_type: "Assertion",
       },
     },
 
-    async profile(profile, tokens) {
-      // https://docs.microsoft.com/en-us/graph/api/profilephoto-get?view=graph-rest-1.0#examples
-      const profilePicture = await fetch(
-        `https://graph.microsoft.com/v1.0/me/photos/${profilePhotoSize}x${profilePhotoSize}/$value`,
-        {
+    token: {
+      url: "https://app.vssps.visualstudio.com/oauth2/token",
+      async request(context) {
+        const tokenEndpoint = context.provider.token as TokenEndpointHandler
+        const response = await fetch(tokenEndpoint.url as string, {
           headers: {
-            Authorization: `Bearer ${tokens.access_token}`,
+            "Content-Type": "application/x-www-form-urlencoded",
           },
-        }
-      )
+          method: "POST",
+          body: new URLSearchParams({
+            client_assertion_type:
+              "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+            client_assertion: context.provider.clientSecret as string,
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion: context.params.code as string,
+            redirect_uri: context.provider.callbackUrl,
+          }),
+        })
+        return { tokens: await response.json() }
+      },
+    },
 
-      // Confirm that profile photo was returned
-      if (profilePicture.ok) {
-        const pictureBuffer = await profilePicture.arrayBuffer()
-        const pictureBase64 = Buffer.from(pictureBuffer).toString("base64")
-        return {
-          id: profile.id,
-          name: profile.displayName,
-          email: profile.emailAddress,
-          image: `data:image/jpeg;base64, ${pictureBase64}`,
-        }
-      } else {
-        return {
-          id: profile.id,
-          name: profile.displayName,
-          email: profile.emailAddress,
-        }
+    userinfo: {
+      url: "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?details=true&coreAttributes=Avatar&api-version=6.0",
+      async request(context) {
+        const accessToken = context.tokens.access_token as string
+        const userInfoEndpoint = context.provider
+          .userinfo as UserinfoEndpointHandler
+        const response = await fetch(userInfoEndpoint.url as string, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        })
+        return response.json()
+      },
+    },
+
+    async profile(profile) {
+      return {
+        id: profile.id,
+        name: profile.displayName,
+        email: profile.emailAddress,
+        image: `data:image/jpeg;base64,${profile.coreAttributes.Avatar.value.value}`,
       }
     },
+
     options,
   }
 }
